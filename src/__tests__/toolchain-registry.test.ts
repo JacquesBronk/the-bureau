@@ -48,7 +48,7 @@ toolchains:
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const reg = loadToolchainRegistry({ BUREAU_TOOLCHAIN_REGISTRY_FILE: file });
-      expect(reg).toEqual([{ name: "node", image: "registry.local/claude/bureau-worker:latest", isDefault: true }]);
+      expect(reg).toEqual([{ name: "node", image: "bureau-worker:latest", isDefault: true }]);
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("empty toolchains list"));
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(file));
     } finally {
@@ -63,7 +63,7 @@ toolchains:
 
   it("synthesizes the hardcoded default image when neither file nor BUREAU_WORKER_IMAGE is set", () => {
     const reg = loadToolchainRegistry({});
-    expect(reg).toEqual([{ name: "node", image: "registry.local/claude/bureau-worker:latest", isDefault: true }]);
+    expect(reg).toEqual([{ name: "node", image: "bureau-worker:latest", isDefault: true }]);
   });
 });
 

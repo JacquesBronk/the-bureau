@@ -27,7 +27,7 @@ beforeAll(async () => {
 
 const { mockBuildK8sLaunchSpec } = vi.hoisted(() => {
   const mockBuildK8sLaunchSpec = vi.fn((params: any) => ({
-    image: params.image ?? "registry.local/claude/bureau-worker:latest",
+    image: params.image ?? "bureau-worker:latest",
     engineUrl: "http://engine.local",
     identity: params.identity,
     extraEnv: params.extraEnv,
@@ -39,7 +39,7 @@ const { mockBuildK8sLaunchSpec } = vi.hoisted(() => {
 
 vi.mock("../spawn/k8s-dispatch.js", () => ({
   readK8sDispatchEnv: vi.fn(() => ({
-    workerImage: "registry.local/claude/bureau-worker:latest",
+    workerImage: "bureau-worker:latest",
     engineUrl: "http://engine.local",
     gitUrl: "http://git.local",
     gitBaseRef: "main",
@@ -110,7 +110,7 @@ import { createDispatchHandler } from "../graph-dispatch.js";
 import type { DispatchDeps } from "../graph-dispatch.js";
 import type { TaskNode } from "../types.js";
 
-const WORKER_IMAGE = "registry.local/claude/bureau-worker:latest";
+const WORKER_IMAGE = "bureau-worker:latest";
 
 const toolchainRegistry: Toolchain[] = [
   { name: "node", image: WORKER_IMAGE, isDefault: true },
