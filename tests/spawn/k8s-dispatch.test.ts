@@ -5,7 +5,7 @@ import type { GitDestination } from "../../src/spawn/git-registry.js";
 describe("readK8sDispatchEnv", () => {
   it("returns built-in defaults when env vars are absent", () => {
     const cfg = readK8sDispatchEnv({});
-    expect(cfg.workerImage).toBe("registry.local/claude/bureau-worker:latest");
+    expect(cfg.workerImage).toBe("bureau-worker:latest");
     expect(cfg.engineUrl).toBe("http://bureau-engine.bureau.svc:3917/mcp");
     expect(cfg.gitUrl).toBe("");
     expect(cfg.gitBaseRef).toBe("main");

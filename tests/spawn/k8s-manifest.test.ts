@@ -3,7 +3,7 @@ import { renderWorkerJob } from "../../src/spawn/k8s-manifest.js";
 import type { K8sLaunchSpec } from "../../src/spawn/strategy.js";
 
 const spec: K8sLaunchSpec = {
-  image: "registry.local/claude/bureau-worker:test",
+  image: "bureau-worker:test",
   engineUrl: "http://bureau-engine.bureau.svc:3917/mcp",
   identity: { sessionId: "s-1", taskId: "t-1", graphId: "g-abc123", project: "demo", role: "coder" },
   loadout: "minimal",
@@ -53,7 +53,7 @@ describe("renderWorkerJob", () => {
 
   it("worker container has engine URL + token from secret, workingDir /workspace, and NO REDIS env", () => {
     const c = job.spec.template.spec.containers[0];
-    expect(c.image).toBe("registry.local/claude/bureau-worker:test");
+    expect(c.image).toBe("bureau-worker:test");
     expect(c.workingDir).toBe("/workspace");
     const envNames = c.env.map((e: any) => e.name);
     expect(envNames).toContain("BUREAU_ENGINE_URL");
