@@ -65,7 +65,7 @@ vi.mock("../telemetry/instrumentation/agent-spawn.js", () => ({
 
 vi.mock("../spawn/k8s-dispatch.js", () => ({
   readK8sDispatchEnv: vi.fn(() => ({
-    workerImage: "registry.local/claude/bureau-worker:latest",
+    workerImage: "bureau-worker:latest",
     engineUrl: "http://engine.local",
     gitUrl: "http://git.local",
     gitBaseRef: "main",
@@ -73,7 +73,7 @@ vi.mock("../spawn/k8s-dispatch.js", () => ({
     sessionPvc: "test-sessions-pvc",
   })),
   buildK8sLaunchSpec: vi.fn(() => ({
-    image: "registry.local/claude/bureau-worker:latest",
+    image: "bureau-worker:latest",
     engineUrl: "http://engine.local",
     identity: {},
     extraEnv: {},
@@ -96,7 +96,7 @@ import type { DispatchDeps } from "../graph-dispatch.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-const WORKER_IMAGE = "registry.local/claude/bureau-worker:latest";
+const WORKER_IMAGE = "bureau-worker:latest";
 const toolchainRegistry: Toolchain[] = [{ name: "node", image: WORKER_IMAGE, isDefault: true }];
 
 let testSigningKey: any;

@@ -3,7 +3,7 @@ import { renderWorkerJob } from "../../src/spawn/k8s-manifest.js";
 import type { K8sLaunchSpec } from "../../src/spawn/strategy.js";
 
 const spec: K8sLaunchSpec = {
-  image: "registry.local/claude/bureau-worker:test",
+  image: "bureau-worker:test",
   engineUrl: "http://bureau-engine.bureau.svc:3917/mcp",
   identity: { sessionId: "s-1", taskId: "t-1", graphId: "g-abc123", project: "demo", role: "coder" },
   loadout: "minimal",
