@@ -33,12 +33,4 @@ describe("manifest-backcompat: frontmatter scan produces same capability surface
       expect(a.id).toBeTruthy();
     }
   });
-
-  it("nano-example.md appears as dynamic provenance", () => {
-    const manifest = loadAgentManifest(AGENTS_DIR);
-    const nano = manifest.agents.find((a) => a.id === "nano-example");
-    expect(nano, "nano-example.md must exist in agents/dynamic/").toBeDefined();
-    expect(nano!.provenance).toBe("dynamic");
-    expect(nano!.profile).toBe("nano"); // profile field derived from template frontmatter key
-  });
 });

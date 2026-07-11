@@ -1,6 +1,6 @@
 {
   "name": "the-bureau",
-  "version": "0.7.81",
+  "version": "1.0.0",
   "description": "Multi-agent orchestration for Claude Code via Redis streams and MCP",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",

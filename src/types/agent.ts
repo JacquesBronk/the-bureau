@@ -17,7 +17,7 @@ export interface AgentDef {
   provider?: string;
   /** Whether this agent is committed to git ("curated") or written at runtime ("dynamic"). */
   provenance?: "curated" | "dynamic";
-  /** Path relative to agentsDir where the .md file lives (e.g. "coder.md" or "dynamic/nano-example.md"). */
+  /** Path relative to agentsDir where the .md file lives (e.g. "coder.md" or "dynamic/my-agent.md"). */
   sourceFile?: string;
 }
 
