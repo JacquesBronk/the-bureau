@@ -1,0 +1,6 @@
+{
+  "id": "bureau",
+  "name": "bureau",
+  "description": "Use when driving the Bureau engine — orchestrating agents, declaring a task graph, or dispatching work. Orients on live capability via bureau_discover, routes work across inline/subagent/engine, and applies durable orchestration judgment (gate your work, never trust worker-green, monitor with summaries).",
+  "version": "0.1.0"
+}

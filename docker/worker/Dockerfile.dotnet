@@ -1,0 +1,55 @@
+# .NET worker = base reliability core + a .NET toolchain layer. Published as
+# bureau-worker-dotnet:* and referenced by the `dotnet` toolchain registry entry.
+#
+# The base carries Node (claude CLI + bureau-steer-hook.sh `node -e`) — Node is the
+# AGENT runtime here, not the project toolchain. This layer adds the .NET 8 SDK via the
+# official dotnet-install.sh (self-contained + version-pinnable — the uv-equivalent for
+# .NET; no apt MS-repo dance), and resolves the same UID-1000 assumptions Phase 4 found
+# for Python (writable HOME + tool caches for the pod's numeric runAsUser: 1000).
+ARG BASE_IMAGE=bureau-worker-base:build
+FROM ${BASE_IMAGE}
+
+USER root
+# libicu: Debian slim omits it and .NET globalization needs it (else dotnet aborts unless
+# DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1). Installing it keeps culture-aware tests honest.
+RUN apt-get update && apt-get install -y --no-install-recommends libicu72 \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV DOTNET_ROOT=/usr/share/dotnet \
+    PATH=/usr/share/dotnet:$PATH \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    HOME=/home/worker \
+    DOTNET_CLI_HOME=/home/worker \
+    NUGET_PACKAGES=/home/worker/.nuget/packages
+
+# Install the pinned .NET SDK (8.0). The script downloads python-build-standalone-style
+# self-contained binaries to DOTNET_ROOT (curl/ca-certs are in the base, over the allowed :443).
+RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+    && chmod +x /tmp/dotnet-install.sh \
+    && /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet \
+    && rm /tmp/dotnet-install.sh \
+    # The worker entrypoint runs `bash -lc "$CMD"` — a LOGIN shell, whose /etc/profile
+    # rebuilds PATH and drops /usr/share/dotnet. Symlink dotnet onto the default PATH
+    # (the muxer locates the SDK from its real path, so DOTNET_ROOT isn't required), and
+    # drop a profile.d script so login shells also carry DOTNET_ROOT + the caches.
+    && ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
+    && printf 'export DOTNET_ROOT=/usr/share/dotnet\nexport PATH=/usr/share/dotnet:$PATH\nexport DOTNET_CLI_HOME=/home/worker\nexport NUGET_PACKAGES=/home/worker/.nuget/packages\nexport DOTNET_CLI_TELEMETRY_OPTOUT=1\nexport DOTNET_NOLOGO=1\n' > /etc/profile.d/dotnet.sh \
+    && dotnet --info \
+    # trx2junit converts `dotnet test`'s .trx output (which preserves DisplayName) into JUnit
+    # for the requirement-coverage gate. --tool-path /usr/local/bin keeps it on the login-shell
+    # PATH for the pod's UID 1000 without any HOME/profile.d wiring (-g installs under
+    # $HOME/.dotnet/tools and would require extra PATH work).
+    && dotnet tool install --tool-path /usr/local/bin trx2junit --version 2.1.0
+
+# A pod runs as an arbitrary UID 1000 with HOME=/home/worker; make HOME + the NuGet/CLI
+# caches world-writable so restore/build/test work without a passwd entry. Pre-warm the
+# NuGet cache with the de-facto test stack (xUnit + Microsoft.NET.Test.Sdk) so per-run
+# `dotnet restore` is lighter — done via a throwaway test project, then removed.
+RUN mkdir -p /home/worker/.nuget/packages && chmod -R 0777 /home/worker \
+    && cd /tmp && dotnet new xunit -o warm >/dev/null 2>&1 \
+    && (cd warm && dotnet restore >/dev/null 2>&1) || true \
+    && rm -rf /tmp/warm \
+    && chmod -R 0777 /home/worker
+
+# Inherit the base ENTRYPOINT (bureau-worker-entrypoint) and WORKDIR (/workspace).

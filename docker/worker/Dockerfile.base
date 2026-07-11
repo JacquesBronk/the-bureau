@@ -1,0 +1,16 @@
+# Base worker image: the language-NEUTRAL reliability core shared by every
+# per-language worker (node, python, dotnet, ...). Carries Node deliberately —
+# the claude CLI runs on Node and bureau-steer-hook.sh uses `node -e` to encode
+# steering directives. Node is infrastructure here, not the project's toolchain.
+# Published as bureau-worker-base so language layers can FROM it.
+FROM node:22-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @anthropic-ai/claude-code
+COPY docker/worker/entrypoint.sh /usr/local/bin/bureau-worker-entrypoint
+RUN chmod +x /usr/local/bin/bureau-worker-entrypoint
+COPY docker/worker/bureau-steer-hook.sh /usr/local/bin/bureau-steer-hook.sh
+RUN chmod +x /usr/local/bin/bureau-steer-hook.sh
+RUN mkdir -p /etc/bureau
+COPY docker/worker/steer-settings.json /etc/bureau/steer-settings.json
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/bureau-worker-entrypoint"]

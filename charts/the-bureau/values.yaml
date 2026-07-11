@@ -1,0 +1,288 @@
+# Default values for the-bureau.
+# This file is the primary configuration surface AND documentation for the chart.
+# Every homelab-specific assumption from the original deployment has been lifted
+# into a value here; the defaults aim to be a portable, single-namespace install.
+
+# -- Override the chart name / full resource name prefix.
+nameOverride: ""
+fullnameOverride: ""
+
+# -----------------------------------------------------------------------------
+# Images
+# -----------------------------------------------------------------------------
+# NOTE: no public registry has been chosen yet — set these before installing.
+image:
+  # Registry prefix applied to both engine and worker.
+  registry: ghcr.io
+  # Pull policy for all images.
+  pullPolicy: IfNotPresent
+  engine:
+    repository: jacquesbronk/bureau-engine
+    tag: ""          # defaults to .Chart.AppVersion when empty
+    digest: ""       # if set, pinned by digest and takes precedence over tag
+  worker:
+    repository: jacquesbronk/bureau-worker
+    tag: ""          # defaults to .Chart.AppVersion when empty
+    digest: ""
+# imagePullSecrets: [{ name: my-registry-creds }]
+imagePullSecrets: []
+
+# -----------------------------------------------------------------------------
+# Engine (the MCP server / control plane)
+# -----------------------------------------------------------------------------
+engine:
+  replicaCount: 1
+  # Leader-election (Redis lease) makes replicas > 1 safe: the leader runs the
+  # singleton control plane, followers serve the MCP surface.
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  terminationGracePeriodSeconds: 30
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  # Baked-in catalog paths (see docker/engine/Dockerfile). Override only if you
+  # bake them elsewhere or mount them from a volume.
+  agentsDir: /app/agents
+  skillsDir: /app/skills
+  criteriaDir: /app/plugins/criteria
+  # Post-graph session analyzer (files improvement issues). Off by default; it
+  # spends model tokens per graph.
+  selfImprovement: false
+  # Escape hatch: extra raw env vars appended verbatim to the engine container.
+  # extraEnv: [{ name: FOO, value: bar }]
+  extraEnv: []
+
+# -----------------------------------------------------------------------------
+# MCP transport / surface
+# -----------------------------------------------------------------------------
+transport:
+  port: 3917
+  host: "0.0.0.0"
+  # DNS-rebinding guard (Host-header allowlist). The chart always adds the
+  # engine's in-cluster Service DNS + loopback; list any external hostnames
+  # (ingress / tunnel) that clients will use here.
+  extraAllowedHosts: []
+  #  - bureau-engine.example.com
+  #  - bureau-engine.example.com:443
+
+# -----------------------------------------------------------------------------
+# Auth
+# -----------------------------------------------------------------------------
+# The engine accepts its own signed operator/worker tokens (issuer
+# "bureau-engine-internal", auto-derived from the signing key) whenever a signing
+# key is present — this is the portable default and needs no external IdP.
+# Mint an operator token with:  the-bureau mint-operator-token  (BUREAU_BEARER).
+auth:
+  mode: oidc
+  signingKey:
+    # Reference an existing Secret ...
+    existingSecret: ""
+    existingSecretKey: signing-key
+    # ... OR let the chart create one from this literal (base64 not required).
+    value: ""
+  # Optional: register ADDITIONAL external OIDC issuers (e.g. your SSO / a
+  # gateway that injects a JWT). Leave disabled for engine-signed-token-only.
+  config:
+    enabled: false
+    # Header the trusted proxy injects the assertion JWT into (e.g.
+    # Cf-Access-Jwt-Assertion). Empty -> standard Authorization: Bearer.
+    tokenHeader: ""
+    issuers: []
+    #  - issuer: https://issuer.example.com
+    #    jwksUri: https://issuer.example.com/.well-known/jwks.json
+
+# -----------------------------------------------------------------------------
+# State store (Redis) — bring your own; the chart does not deploy Redis.
+# -----------------------------------------------------------------------------
+redis:
+  url: "redis://redis:6379/0"
+  # If the URL carries credentials, provide it via a Secret instead of inline.
+  existingSecret: ""
+  existingSecretKey: url
+
+# -----------------------------------------------------------------------------
+# Model provider for the workers
+# -----------------------------------------------------------------------------
+model:
+  # "anthropic-sub" = OAuth token (Claude Max subscription, from `claude
+  # setup-token`). For an OpenAI-compatible gateway (e.g. LiteLLM) set the
+  # provider name your engine expects and populate gatewayKey.
+  provider: anthropic-sub
+  oauthToken:
+    existingSecret: ""
+    existingSecretKey: oauth-token
+    value: ""
+  gatewayKey:
+    existingSecret: ""
+    existingSecretKey: gateway-key
+    value: ""
+
+# -----------------------------------------------------------------------------
+# Workers (spawned as k8s Jobs)
+# -----------------------------------------------------------------------------
+worker:
+  # Namespace the engine creates worker Jobs in. Empty -> the release namespace
+  # (single-namespace install). Set to a separate namespace to isolate workers;
+  # the chart then also creates that namespace's RBAC there.
+  namespace: ""
+  nodeSelector: {}
+  # Toolchain registry: name -> worker image + default build/test/lint commands.
+  # A graph selects one by name; omitted -> the isDefault entry. An empty image
+  # falls back to image.worker above.
+  toolchains:
+    - name: node
+      image: ""
+      isDefault: true
+      test: "npm test"
+    # - name: python
+    #   image: your-org/bureau-worker-python:0.7.81
+    #   install: "uv venv --python 3.12 && uv pip install -e . -q"
+    #   test: ".venv/bin/pytest -q"
+    #   lint: "uvx ruff check ."
+
+# -----------------------------------------------------------------------------
+# Git integration (pod-mode clone + push-back / merge)
+# -----------------------------------------------------------------------------
+# Disabled by default: workers run without pushing results anywhere. Enable to
+# have workers clone a repo and the engine merge integration branches back.
+git:
+  enabled: false
+  url: ""
+  baseRef: "main"
+  token:
+    existingSecret: ""
+    existingSecretKey: token
+    value: ""
+  # Optional multi-repo destination registry. Empty -> a single "default"
+  # destination synthesized from url/baseRef above.
+  destinations: []
+  #  - name: default
+  #    url: https://github.com/your-org/target.git
+  #    baseRef: main
+  #    provider: github
+  #    tokenEnv: BUREAU_GIT_TOKEN
+
+# -----------------------------------------------------------------------------
+# MCP gateway — remote MCP servers the engine fronts for workers (optional)
+# -----------------------------------------------------------------------------
+mcpGateway:
+  enabled: false
+  servers: []
+  #  - name: quipu
+  #    type: rag
+  #    transport: streamable-http
+  #    url: https://quipu.example.com/mcp
+  #    auth:
+  #      mode: headers
+  #      secretRef: bureau-mcp-quipu
+  #    tools: [context, search]
+
+# -----------------------------------------------------------------------------
+# Telemetry (OpenTelemetry export) — optional
+# -----------------------------------------------------------------------------
+telemetry:
+  enabled: false
+  otlp:
+    metricsEndpoint: ""   # e.g. http://otel-collector.observability.svc:4318/v1/metrics
+    tracesEndpoint: ""    # e.g. http://otel-collector.observability.svc:4318/v1/traces
+    protocol: http/protobuf
+
+# -----------------------------------------------------------------------------
+# Service
+# -----------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 3917
+  # Pin a worker's MCP session to one engine pod (needed when replicas > 1).
+  sessionAffinity: ClientIP
+  sessionAffinityTimeoutSeconds: 10800
+
+# -----------------------------------------------------------------------------
+# Ingress (standard networking.k8s.io Ingress) — optional
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: bureau-engine.example.com
+  path: /
+  pathType: Prefix
+  tls: []
+  #  - secretName: bureau-engine-tls
+  #    hosts: [bureau-engine.example.com]
+
+# -----------------------------------------------------------------------------
+# Persistence — both off by default (agents/skills are baked into the image)
+# -----------------------------------------------------------------------------
+persistence:
+  # Live, editable agent store (overrides the image-baked /app/agents). Requires
+  # RWX if replicas > 1.
+  agents:
+    enabled: false
+    storageClass: ""
+    accessModes: [ReadWriteMany]
+    size: 1Gi
+  # Shared worker session-transcript store (enables the engine's read-only view
+  # of worker transcripts for review agents).
+  sessionLogs:
+    enabled: false
+    storageClass: ""
+    accessModes: [ReadWriteMany]
+    size: 5Gi
+
+# -----------------------------------------------------------------------------
+# RBAC / ServiceAccount
+# -----------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+rbac:
+  # Role + RoleBinding letting the engine SA create/manage worker Jobs, Pods,
+  # per-Job token Secrets and broker Services in the worker namespace.
+  create: true
+
+# -----------------------------------------------------------------------------
+# NetworkPolicy — a simplified, portable starting point (off by default)
+# -----------------------------------------------------------------------------
+# The original homelab policies encoded cluster-specific CNI/DNAT quirks; these
+# capture the security INTENT (workers may only reach the engine, DNS and public
+# HTTPS; the engine only accepts worker ingress) and should be reviewed for your
+# cluster before enabling.
+networkPolicy:
+  enabled: false
+
+# -----------------------------------------------------------------------------
+# Orphaned-worker reaper (CronJob) — optional
+# -----------------------------------------------------------------------------
+reaper:
+  enabled: false
+  schedule: "*/5 * * * *"
+  image: redis:7-alpine
+  # Dry-run logs candidates without deleting; flip to false once validated.
+  dryRun: true
+  graceSeconds: 300
+  confirmDelay: 30
+  # Redis coordinates the reaper uses to check whether a worker's graph record
+  # still exists (an orphan has a Running Job but no graph record).
+  redisHost: redis
+  redisPort: 6379
+  redisDb: 0
+  # Optional git-host branch check (visibility into potential work loss before a
+  # reap). Leave empty to skip; the reap still proceeds.
+  forgejoApi: ""
+  gitRepo: ""
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

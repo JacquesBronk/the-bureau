@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.js.map
+.bureau/
+.worktrees
+
+# local artifacts
+coverage/
+!src/coverage/
+agents.zip
+.claude/scheduled_tasks.lock
+
+# local MCP / settings (may carry API keys & tokens — never commit)
+.claude/settings.local.json
+.mcp.json

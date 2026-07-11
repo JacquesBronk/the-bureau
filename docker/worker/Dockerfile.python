@@ -1,0 +1,43 @@
+# Python worker = base reliability core + a Python toolchain layer. Published as
+# bureau-worker-python:* and referenced by the `python` toolchain registry entry.
+#
+# The base carries Node (claude CLI + bureau-steer-hook.sh `node -e`) — Node is the
+# AGENT runtime here, not the project toolchain. This layer adds Python via **uv**
+# (Astral). uv is deliberate, not incidental — it resolves three hidden assumptions
+# the base's Debian (node:22-slim = bookworm, system python 3.11) would otherwise impose
+# on Python projects, all surfaced live in Phase 4 (#226):
+#   1. Modern Python: real projects pin `requires-python >= 3.12` (quipu does); bookworm
+#      ships 3.11. uv provides a managed, self-contained 3.12 with no apt/backports dance.
+#   2. PEP 668: Debian marks system Python "externally managed", so even `pip --user`
+#      refuses. uv installs into a project venv — no system mutation, no override flags.
+#   3. Writable HOME for UID 1000: uv's cache/venv live under an explicit writable HOME,
+#      so the pod's numeric `runAsUser: 1000` (no passwd entry) just works.
+ARG BASE_IMAGE=bureau-worker-base:build
+FROM ${BASE_IMAGE}
+
+USER root
+# build-essential: some sdists compile a C extension during install. curl/ca-certs are
+# already in the base (used to fetch uv + python-build-standalone over the allowed :443).
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv to a system path (on PATH for every user, incl. UID 1000).
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Bake a managed Python 3.12 into a world-readable shared dir so per-run venv creation is
+# fast and offline-resilient (no python-build-standalone download per pod). Pre-warm the
+# uv cache with the de-facto runners (pytest, ruff) so the per-run `uv pip install` is a
+# cache hit, not a network fetch.
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv/python \
+    UV_CACHE_DIR=/opt/uv/cache \
+    HOME=/home/worker
+RUN mkdir -p /opt/uv /home/worker \
+    && uv python install 3.12 \
+    && uv venv --python 3.12 /tmp/warm \
+    && uv pip install --python /tmp/warm pytest ruff \
+    && rm -rf /tmp/warm
+# A pod runs as an arbitrary UID 1000 with HOME=/home/worker; make the shared uv dirs +
+# HOME writable so venv creation, the uv cache, and ~/.local all work without a passwd entry.
+RUN chmod -R 0777 /opt/uv /home/worker
+
+# Inherit the base ENTRYPOINT (bureau-worker-entrypoint) and WORKDIR (/workspace).

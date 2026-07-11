@@ -1,0 +1,91 @@
+{{- $workerImage := include "the-bureau.worker.image" . -}}
+# Toolchain registry: name -> worker image + default commands. At boot the engine
+# adds every image here to its ImageCatalog allowlist (only allowlisted images
+# dispatch), so this is also what approves each worker image.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "the-bureau.engine.fullname" . }}-toolchain-registry
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+data:
+  registry.yaml: |
+    toolchains:
+    {{- range .Values.worker.toolchains }}
+      - name: {{ .name }}
+        image: {{ .image | default $workerImage | quote }}
+        {{- if .isDefault }}
+        isDefault: true
+        {{- end }}
+        {{- if .install }}
+        install: {{ .install | quote }}
+        {{- end }}
+        {{- if .build }}
+        build: {{ .build | quote }}
+        {{- end }}
+        {{- if .test }}
+        test: {{ .test | quote }}
+        {{- end }}
+        {{- if .lint }}
+        lint: {{ .lint | quote }}
+        {{- end }}
+    {{- end }}
+{{- if .Values.git.destinations }}
+---
+# Named git destination registry (multi-repo). When present the engine reads
+# destinations from here instead of synthesizing a single default from BUREAU_GIT_URL.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "the-bureau.engine.fullname" . }}-git-registry
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+data:
+  registry.yaml: |
+    destinations:
+    {{- range .Values.git.destinations }}
+      - {{ toYaml . | nindent 8 | trim }}
+    {{- end }}
+{{- end }}
+{{- if .Values.mcpGateway.enabled }}
+---
+# Config-driven MCP gateway: remote MCP servers the engine fronts and proxies
+# allowlisted tools from onto worker surfaces as <server>__<tool>.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "the-bureau.engine.fullname" . }}-mcp-registry
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+data:
+  registry.yaml: |
+    mcpServers:
+    {{- range .Values.mcpGateway.servers }}
+      - {{ toYaml . | nindent 8 | trim }}
+    {{- end }}
+{{- end }}
+{{- if .Values.auth.config.enabled }}
+---
+# Additional external OIDC issuers. Takes precedence over BUREAU_AUTH_MODE; the
+# engine-signed issuer is still auto-appended from the signing key.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "the-bureau.engine.fullname" . }}-auth-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+data:
+  auth.yaml: |
+    mode: {{ .Values.auth.mode }}
+    {{- if .Values.auth.config.tokenHeader }}
+    tokenHeader: {{ .Values.auth.config.tokenHeader }}
+    {{- end }}
+    issuers:
+    {{- range .Values.auth.config.issuers }}
+      - {{ toYaml . | nindent 8 | trim }}
+    {{- end }}
+{{- end }}

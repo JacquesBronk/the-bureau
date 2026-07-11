@@ -1,0 +1,1 @@
+{"hooks":{"PostToolUse":[{"hooks":[{"type":"command","command":"/usr/local/bin/bureau-steer-hook.sh"}]}]}}

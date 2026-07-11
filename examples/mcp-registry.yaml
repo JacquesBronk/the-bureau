@@ -1,0 +1,13 @@
+# examples/mcp-registry.yaml — mounted into the engine as the bureau-mcp-registry
+# ConfigMap; pointed to by BUREAU_MCP_REGISTRY_FILE. Auth secrets are mounted under
+# BUREAU_MCP_SECRETS_DIR/<secretRef>/<key>. HTTP transports only; read/query tools only.
+mcpServers:
+  - name: quipu
+    type: rag
+    transport: streamable-http
+    url: http://quipu.local/mcp
+    auth:
+      mode: headers
+      secretRef: bureau-mcp-quipu   # keys: CF-Access-Client-Id, CF-Access-Client-Secret
+    tools: [context, search]
+    # no `projects:` → available to all workers (default-open)

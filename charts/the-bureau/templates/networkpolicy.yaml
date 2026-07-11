@@ -1,0 +1,73 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $workerNs := include "the-bureau.workerNamespace" . -}}
+{{- $port := .Values.transport.port -}}
+# Simplified, portable starting point. Review against your CNI before relying on
+# it. Intent: workers may only reach the engine, DNS and public HTTPS; the engine
+# only accepts ingress from workers (and your ingress controller, if used).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "the-bureau.engine.fullname" . }}-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: bureau-engine
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $workerNs }}
+          podSelector:
+            matchLabels:
+              app: bureau-worker
+      ports:
+        - { protocol: TCP, port: {{ $port }} }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "the-bureau.fullname" . }}-worker-egress
+  namespace: {{ $workerNs }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: bureau-worker
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    # Engine MCP surface
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              app: bureau-engine
+      ports:
+        - { protocol: TCP, port: {{ $port }} }
+    # Public HTTPS (model API, git hosts), excluding RFC1918 so it can't reach
+    # in-cluster / LAN services on 443.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - { protocol: TCP, port: 443 }
+{{- end }}

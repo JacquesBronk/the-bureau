@@ -1,0 +1,170 @@
+{{- if .Values.reaper.enabled }}
+{{- $workerNs := include "the-bureau.workerNamespace" . -}}
+{{- $reaper := printf "%s-reaper" (include "the-bureau.fullname" .) -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $reaper }}
+  namespace: {{ $workerNs }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $reaper }}
+  namespace: {{ $workerNs }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["list", "get", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["list", "get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $reaper }}
+  namespace: {{ $workerNs }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $reaper }}
+    namespace: {{ $workerNs }}
+roleRef:
+  kind: Role
+  name: {{ $reaper }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $reaper }}-script
+  namespace: {{ $workerNs }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+data:
+  reaper.sh: |
+    #!/bin/sh
+    # Safely reap orphaned worker pods: a Running worker Job whose graph record no
+    # longer exists in the engine's Redis. Enforces a grace period, a double-check
+    # after CONFIRM_DELAY, and (if configured) a git-branch check before deleting.
+    # DRY_RUN=true logs candidates without deleting.
+    set -eu
+
+    NAMESPACE="${NAMESPACE:-{{ $workerNs }}}"
+    GRACE_SECONDS="${GRACE_SECONDS:-300}"
+    CONFIRM_DELAY="${CONFIRM_DELAY:-30}"
+    DRY_RUN="${DRY_RUN:-true}"
+    REDIS_HOST="${REDIS_HOST:-redis}"
+    REDIS_PORT="${REDIS_PORT:-6379}"
+    REDIS_DB="${REDIS_DB:-0}"
+    FORGEJO_API="${FORGEJO_API:-}"
+    GIT_REPO="${GIT_REPO:-}"
+
+    K8S_API=https://kubernetes.default.svc
+    SA_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+    CA_CERT=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+    log() { printf '[reaper] %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; }
+    k8s_get() { curl -sf --cacert "$CA_CERT" -H "Authorization: Bearer $SA_TOKEN" "${K8S_API}$1"; }
+    k8s_delete() { curl -sf --cacert "$CA_CERT" -H "Authorization: Bearer $SA_TOKEN" -X DELETE "${K8S_API}$1" >/dev/null 2>&1 || true; }
+    redis_graph_exists() { redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" -n "$REDIS_DB" EXISTS "graph:$1" 2>/dev/null | grep -q "^1$"; }
+    branch_pushed() {
+      [ -n "$FORGEJO_API" ] && [ -n "$GIT_REPO" ] || return 1
+      b=$(printf 'bureau/%s/%s' "$1" "$2" | sed 's|/|%2F|g')
+      s=$(curl -sf -o /dev/null -w '%{http_code}' "${FORGEJO_API}/repos/${GIT_REPO}/branches/${b}" 2>/dev/null || echo 000)
+      [ "$s" = "200" ]
+    }
+    ts_to_epoch() {
+      echo "$1" | awk '{
+        split($0, a, /[-T:Z]/); y=a[1];mo=a[2];d=a[3];h=a[4];mi=a[5];s=a[6];
+        yd=(y-1970)*365+int((y-1969)/4)-int((y-1901)/100)+int((y-1601)/400);
+        md[1]=0;md[2]=31;md[3]=59;md[4]=90;md[5]=120;md[6]=151;md[7]=181;md[8]=212;md[9]=243;md[10]=273;md[11]=304;md[12]=334;
+        leap=(mo>2&&(y%4==0&&(y%100!=0||y%400==0)))?1:0;
+        print (yd+md[mo+0]+d-1+leap)*86400+h*3600+mi*60+s+0; }'
+    }
+
+    NEED=""
+    command -v curl >/dev/null 2>&1 || NEED="$NEED curl"
+    command -v jq   >/dev/null 2>&1 || NEED="$NEED jq"
+    [ -z "$NEED" ] || apk add --no-cache $NEED >/dev/null 2>&1 || log "WARNING: apk install failed ($NEED)"
+
+    log "scan start (ns=$NAMESPACE DRY_RUN=$DRY_RUN grace=${GRACE_SECONDS}s confirm=${CONFIRM_DELAY}s)"
+    JOBS_JSON=$(k8s_get "/apis/batch/v1/namespaces/${NAMESPACE}/jobs?labelSelector=app%3Dbureau-worker" || echo '{"items":[]}')
+    NOW=$(date +%s)
+    command -v jq >/dev/null 2>&1 || { log "jq unavailable — skipping"; exit 0; }
+    echo "$JOBS_JSON" | jq -r '.items[]|select((.status.active//0)>0)|[.metadata.name,(.metadata.labels["bureau/graph"]//""),(.metadata.labels["bureau/task"]//""),(.metadata.creationTimestamp//"")]|@tsv' | \
+    while IFS=$(printf '\t') read -r JOB GRAPH TASK CREATED; do
+      [ -n "$GRAPH" ] || { log "SKIP $JOB — no graph label"; continue; }
+      AGE=$((NOW - $(ts_to_epoch "$CREATED")))
+      [ "$AGE" -ge "$GRACE_SECONDS" ] || { log "SKIP $JOB age=${AGE}s < grace"; continue; }
+      redis_graph_exists "$GRAPH" && { log "SKIP $JOB — graph present"; continue; }
+      log "CANDIDATE $JOB graph=$GRAPH — confirming in ${CONFIRM_DELAY}s"; sleep "$CONFIRM_DELAY"
+      redis_graph_exists "$GRAPH" && { log "SKIP $JOB — graph reappeared"; continue; }
+      PUSHED=false; branch_pushed "$GRAPH" "$TASK" && PUSHED=true
+      log "REAP $JOB graph=$GRAPH task=$TASK branch_pushed=$PUSHED DRY_RUN=$DRY_RUN"
+      [ "$DRY_RUN" = "true" ] && { log "DRY_RUN: would delete $JOB"; continue; }
+      TOK=$(printf '%s' "$JOB" | cut -c1-59)-tok
+      k8s_delete "/apis/batch/v1/namespaces/${NAMESPACE}/jobs/${JOB}?propagationPolicy=Background"
+      k8s_delete "/api/v1/namespaces/${NAMESPACE}/secrets/${TOK}"
+      log "REAPED $JOB secret=$TOK"
+    done
+    log "scan complete"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $reaper }}
+  namespace: {{ $workerNs }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.reaper.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 300
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app: bureau-reaper
+        spec:
+          serviceAccountName: {{ $reaper }}
+          restartPolicy: Never
+          containers:
+            - name: reaper
+              image: {{ .Values.reaper.image | quote }}
+              command: ["sh", "-c", "cp /scripts/reaper.sh /tmp/reaper.sh && chmod +x /tmp/reaper.sh && /tmp/reaper.sh"]
+              env:
+                - { name: NAMESPACE, value: {{ $workerNs | quote }} }
+                - { name: GRACE_SECONDS, value: {{ .Values.reaper.graceSeconds | quote }} }
+                - { name: CONFIRM_DELAY, value: {{ .Values.reaper.confirmDelay | quote }} }
+                - { name: DRY_RUN, value: {{ .Values.reaper.dryRun | quote }} }
+                - { name: REDIS_HOST, value: {{ .Values.reaper.redisHost | quote }} }
+                - { name: REDIS_PORT, value: {{ .Values.reaper.redisPort | quote }} }
+                - { name: REDIS_DB, value: {{ .Values.reaper.redisDb | quote }} }
+                {{- with .Values.reaper.forgejoApi }}
+                - { name: FORGEJO_API, value: {{ . | quote }} }
+                {{- end }}
+                {{- with .Values.reaper.gitRepo }}
+                - { name: GIT_REPO, value: {{ . | quote }} }
+                {{- end }}
+              resources:
+                {{- toYaml .Values.reaper.resources | nindent 16 }}
+              volumeMounts:
+                - { name: script, mountPath: /scripts, readOnly: true }
+          volumes:
+            - name: script
+              configMap:
+                name: {{ $reaper }}-script
+                defaultMode: 0755
+{{- end }}

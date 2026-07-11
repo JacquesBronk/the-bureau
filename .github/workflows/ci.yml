@@ -1,0 +1,57 @@
+name: CI
+
+# QA gate for pull requests. Configure branch protection on `main` to require
+# the "typecheck" and "test" checks below before merging.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: TypeScript compile
+        run: npm run build:tsc
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    # Tests require a Redis server; they self-isolate onto logical DB 15 so they
+    # never touch DB 0 (see tests/redis-isolation.setup.ts). python3 (preinstalled
+    # on ubuntu-latest) is needed by the EARS acceptance-criteria checker tests.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Unit tests
+        run: npm test
