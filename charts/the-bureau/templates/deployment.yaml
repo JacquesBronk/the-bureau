@@ -1,0 +1,225 @@
+{{- $fullEngine := include "the-bureau.engine.fullname" . -}}
+{{- $port := .Values.transport.port -}}
+{{- $svcDns := include "the-bureau.engine.serviceDns" . -}}
+{{- $chartSecret := include "the-bureau.engine.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullEngine }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.engine.replicaCount }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "the-bureau.engine.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "the-bureau.engine.selectorLabels" . | nindent 8 }}
+        {{- with .Values.engine.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.engine.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "the-bureau.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.engine.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.engine.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.engine.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.engine.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: engine
+          image: {{ include "the-bureau.engine.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+          env:
+            # --- transport / surface ---
+            - { name: BUREAU_MCP_TRANSPORT, value: "http" }
+            - { name: BUREAU_MCP_HTTP_HOST, value: {{ .Values.transport.host | quote }} }
+            - { name: BUREAU_MCP_HTTP_PORT, value: {{ $port | quote }} }
+            - name: BUREAU_MCP_ALLOWED_HOSTS
+              value: {{ printf "%s:%v,%s.cluster.local:%v,localhost:%v,127.0.0.1:%v" $svcDns $port $svcDns $port $port $port }}{{- range .Values.transport.extraAllowedHosts }},{{ . }}{{- end }}
+            # --- auth (engine-signed operator/worker tokens) ---
+            - { name: BUREAU_AUTH_MODE, value: {{ .Values.auth.mode | quote }} }
+            - name: BUREAU_ENGINE_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.signingKey.existingSecret | default $chartSecret }}
+                  key: {{ if .Values.auth.signingKey.existingSecret }}{{ .Values.auth.signingKey.existingSecretKey }}{{ else }}signing-key{{ end }}
+            {{- if .Values.auth.config.enabled }}
+            - { name: BUREAU_AUTH_CONFIG, value: "/etc/bureau/auth.yaml" }
+            {{- end }}
+            # --- model provider (forwarded to workers) ---
+            - { name: BUREAU_DEFAULT_PROVIDER, value: {{ .Values.model.provider | quote }} }
+            {{- if or .Values.model.oauthToken.existingSecret .Values.model.oauthToken.value }}
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.model.oauthToken.existingSecret | default $chartSecret }}
+                  key: {{ if .Values.model.oauthToken.existingSecret }}{{ .Values.model.oauthToken.existingSecretKey }}{{ else }}oauth-token{{ end }}
+                  optional: true
+            {{- end }}
+            {{- if or .Values.model.gatewayKey.existingSecret .Values.model.gatewayKey.value }}
+            - name: LITELLM_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.model.gatewayKey.existingSecret | default $chartSecret }}
+                  key: {{ if .Values.model.gatewayKey.existingSecret }}{{ .Values.model.gatewayKey.existingSecretKey }}{{ else }}gateway-key{{ end }}
+                  optional: true
+            {{- end }}
+            # --- spawn strategy: k8s Jobs ---
+            - { name: BUREAU_SPAWN_STRATEGY, value: "k8s" }
+            - { name: BUREAU_WORKER_NAMESPACE, value: {{ include "the-bureau.workerNamespace" . | quote }} }
+            - { name: BUREAU_WORKER_IMAGE, value: {{ include "the-bureau.worker.image" . | quote }} }
+            {{- if .Values.worker.nodeSelector }}
+            - { name: BUREAU_WORKER_NODE_SELECTOR, value: {{ range $k, $v := .Values.worker.nodeSelector }}{{ printf "%s=%s" $k $v | quote }}{{ end }} }
+            {{- end }}
+            - { name: BUREAU_ENGINE_URL, value: {{ include "the-bureau.engine.url" . | quote }} }
+            # --- baked-in catalogs ---
+            - { name: AGENTS_DIR, value: {{ .Values.engine.agentsDir | quote }} }
+            - { name: SKILLS_DIR, value: {{ .Values.engine.skillsDir | quote }} }
+            - { name: CRITERIA_DIR, value: {{ .Values.engine.criteriaDir | quote }} }
+            - { name: BUREAU_TOOLCHAIN_REGISTRY_FILE, value: "/etc/bureau/toolchain-registry/registry.yaml" }
+            {{- if .Values.git.enabled }}
+            # --- git (pod-mode clone + push-back / merge) ---
+            - { name: BUREAU_GIT_URL, value: {{ .Values.git.url | quote }} }
+            - { name: BUREAU_GIT_BASE_REF, value: {{ .Values.git.baseRef | quote }} }
+            - { name: BUREAU_MERGE_CLONE_DIR, value: "/workspace/bureau-merge" }
+            {{- if or .Values.git.token.existingSecret .Values.git.token.value }}
+            - name: BUREAU_GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.git.token.existingSecret | default $chartSecret }}
+                  key: {{ if .Values.git.token.existingSecret }}{{ .Values.git.token.existingSecretKey }}{{ else }}token{{ end }}
+                  optional: true
+            {{- end }}
+            {{- if .Values.git.destinations }}
+            - { name: BUREAU_GIT_REGISTRY_FILE, value: "/etc/bureau/git-registry/registry.yaml" }
+            {{- end }}
+            {{- end }}
+            {{- if .Values.mcpGateway.enabled }}
+            # --- MCP gateway ---
+            - { name: BUREAU_MCP_REGISTRY_FILE, value: "/etc/bureau/mcp-registry/registry.yaml" }
+            - { name: BUREAU_MCP_SECRETS_DIR, value: "/etc/bureau/mcp-secrets" }
+            {{- end }}
+            # --- state ---
+            {{- if .Values.redis.existingSecret }}
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.existingSecret }}
+                  key: {{ .Values.redis.existingSecretKey }}
+            {{- else }}
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $chartSecret }}
+                  key: redis-url
+            {{- end }}
+            - { name: BUREAU_DISABLE_MEM_THROTTLE, value: "1" }
+            - { name: NODE_ENV, value: "production" }
+            - { name: SELF_IMPROVEMENT, value: {{ .Values.engine.selfImprovement | quote }} }
+            {{- if .Values.telemetry.enabled }}
+            # --- telemetry ---
+            - { name: BUREAU_OTEL_ENABLED, value: "true" }
+            {{- with .Values.telemetry.otlp.metricsEndpoint }}
+            - { name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.telemetry.otlp.tracesEndpoint }}
+            - { name: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, value: {{ . | quote }} }
+            {{- end }}
+            - { name: OTEL_EXPORTER_OTLP_PROTOCOL, value: {{ .Values.telemetry.otlp.protocol | quote }} }
+            - { name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE, value: "cumulative" }
+            {{- end }}
+            {{- with .Values.engine.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - { name: mcp, containerPort: {{ $port }}, protocol: TCP }
+          readinessProbe:
+            tcpSocket: { port: mcp }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            tcpSocket: { port: mcp }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.engine.resources | nindent 12 }}
+          volumeMounts:
+            - { name: engine-workspace, mountPath: /workspace }
+            - { name: toolchain-registry, mountPath: /etc/bureau/toolchain-registry, readOnly: true }
+            {{- if .Values.git.destinations }}
+            - { name: git-registry, mountPath: /etc/bureau/git-registry, readOnly: true }
+            {{- end }}
+            {{- if .Values.mcpGateway.enabled }}
+            - { name: mcp-registry, mountPath: /etc/bureau/mcp-registry, readOnly: true }
+            {{- end }}
+            {{- if .Values.auth.config.enabled }}
+            - { name: auth-config, mountPath: /etc/bureau/auth.yaml, subPath: auth.yaml, readOnly: true }
+            {{- end }}
+            {{- if .Values.persistence.agents.enabled }}
+            - { name: agents, mountPath: {{ .Values.engine.agentsDir }} }
+            {{- end }}
+            {{- if .Values.persistence.sessionLogs.enabled }}
+            - { name: sessions, mountPath: /sessions, readOnly: true }
+            {{- end }}
+      volumes:
+        - { name: engine-workspace, emptyDir: {} }
+        - name: toolchain-registry
+          configMap:
+            name: {{ $fullEngine }}-toolchain-registry
+        {{- if .Values.git.destinations }}
+        - name: git-registry
+          configMap:
+            name: {{ $fullEngine }}-git-registry
+        {{- end }}
+        {{- if .Values.mcpGateway.enabled }}
+        - name: mcp-registry
+          configMap:
+            name: {{ $fullEngine }}-mcp-registry
+        {{- end }}
+        {{- if .Values.auth.config.enabled }}
+        - name: auth-config
+          configMap:
+            name: {{ $fullEngine }}-auth-config
+        {{- end }}
+        {{- if .Values.persistence.agents.enabled }}
+        - name: agents
+          persistentVolumeClaim:
+            claimName: {{ $fullEngine }}-agents
+        {{- end }}
+        {{- if .Values.persistence.sessionLogs.enabled }}
+        - name: sessions
+          persistentVolumeClaim:
+            claimName: {{ include "the-bureau.fullname" . }}-session-logs
+            readOnly: true
+        {{- end }}

@@ -1,0 +1,6 @@
+{
+  "id": "business-analyst",
+  "name": "business-analyst",
+  "description": "Use when the user brings a fuzzy idea, new project, or feature request and wants it turned into a spec, filed issue, or task graph — requirements elicitation, \"help me build/plan X\". Adapts to what the user already knows (mixed-initiative LEAD/FOLLOW/ASSIST) and converges to EARS acceptance criteria before handoff.",
+  "version": "0.1.0"
+}

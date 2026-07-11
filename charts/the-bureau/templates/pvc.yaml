@@ -1,0 +1,38 @@
+{{- if .Values.persistence.agents.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "the-bureau.engine.fullname" . }}-agents
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.agents.accessModes | nindent 4 }}
+  {{- with .Values.persistence.agents.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.agents.size }}
+{{- end }}
+{{- if .Values.persistence.sessionLogs.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "the-bureau.fullname" . }}-session-logs
+  namespace: {{ include "the-bureau.workerNamespace" . }}
+  labels:
+    {{- include "the-bureau.labels" . | nindent 4 }}
+    app: bureau-worker
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.sessionLogs.accessModes | nindent 4 }}
+  {{- with .Values.persistence.sessionLogs.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.sessionLogs.size }}
+{{- end }}

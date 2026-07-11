@@ -1,0 +1,6 @@
+# Node worker = the base, unchanged (parity passthrough). Kept as its own image so
+# node/python/dotnet share one parameterized build path. Published as bureau-worker:*
+# — the default BUREAU_WORKER_IMAGE — so this split is behavior-neutral for existing
+# deploys. BASE_IMAGE lets CI point FROM at the locally-built or registry base tag.
+ARG BASE_IMAGE=bureau-worker-base:build
+FROM ${BASE_IMAGE}

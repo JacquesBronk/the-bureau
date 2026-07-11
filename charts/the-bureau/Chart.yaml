@@ -1,0 +1,22 @@
+apiVersion: v2
+name: the-bureau
+description: |
+  The Bureau — a model-less orchestration engine that dispatches AI coding agents
+  as isolated Kubernetes Jobs and drives them over an MCP (Model Context Protocol)
+  surface. This chart deploys the engine, its RBAC for spawning worker Jobs, the
+  toolchain/git/MCP registries, and (optionally) the orphaned-worker reaper.
+type: application
+# Chart version — bump on chart changes, independent of the app.
+version: 0.1.0
+# The Bureau engine/worker image version this chart defaults to.
+appVersion: "0.7.81"
+keywords:
+  - ai-agents
+  - orchestration
+  - mcp
+  - coding-agents
+home: https://github.com/JacquesBronk/the-bureau
+sources:
+  - https://github.com/JacquesBronk/the-bureau
+maintainers:
+  - name: The Bureau maintainers

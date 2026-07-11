@@ -1,0 +1,5 @@
+.git
+.gitignore
+*.tmpl.bak
+*.md.bak
+ci/

@@ -1,0 +1,9 @@
+{
+  "version": "1.0.0",
+  "agents": [
+    { "id": "legacy", "name": "legacy", "description": "d", "category": "implementation", "tags": [], "model": "sonnet", "effort": "medium", "profile": "minimal", "file": "legacy.md" },
+    { "id": "nano-agent", "name": "nano-agent", "description": "d", "category": "research", "tags": [], "model": "qwen3:14b", "effort": "low", "profile": "minimal", "file": "nano-agent.md" },
+    { "id": "custom", "name": "custom", "description": "d", "category": "research", "tags": [], "model": "haiku", "effort": "low", "profile": "minimal", "file": "custom.md" },
+    { "id": "bad-tool", "name": "bad-tool", "description": "d", "category": "research", "tags": [], "model": "haiku", "effort": "low", "profile": "minimal", "file": "bad-tool.md" }
+  ]
+}

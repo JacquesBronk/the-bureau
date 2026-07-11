@@ -1,0 +1,8 @@
+node_modules
+.git
+tests
+docs
+coverage
+*.log
+.bureau
+src/**/*.test.ts

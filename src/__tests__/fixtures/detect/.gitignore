@@ -1,0 +1,5 @@
+# Allow vendored fixture files that mimic ignored paths
+!node_modules/
+!node_modules/**
+!dist/
+!dist/**

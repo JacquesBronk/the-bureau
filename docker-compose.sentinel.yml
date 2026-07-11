@@ -1,0 +1,132 @@
+networks:
+  sentinel:
+    driver: bridge
+
+services:
+  redis-master:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --protected-mode no
+    ports:
+      - '127.0.0.1:6380:6379'
+    networks:
+      - sentinel
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  redis-replica-1:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --protected-mode no --replicaof redis-master 6379
+    ports:
+      - '127.0.0.1:6381:6379'
+    networks:
+      - sentinel
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  redis-replica-2:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --protected-mode no --replicaof redis-master 6379
+    ports:
+      - '127.0.0.1:6382:6379'
+    networks:
+      - sentinel
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
+  sentinel-1:
+    image: redis:7-alpine
+    # Redis Sentinel rewrites its config file at runtime, so the mounted conf
+    # (read-only) is copied to a writable location before sentinel starts.
+    entrypoint:
+      - sh
+      - -c
+      - 'cp /etc/redis/sentinel.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf --port 26379'
+    volumes:
+      - ./docker/sentinel/sentinel.conf:/etc/redis/sentinel.conf:ro
+    ports:
+      - '127.0.0.1:26379:26379'
+    networks:
+      - sentinel
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-p', '26379', 'sentinel', 'master', 'bureau-master']
+      interval: 2s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  sentinel-2:
+    image: redis:7-alpine
+    entrypoint:
+      - sh
+      - -c
+      - 'cp /etc/redis/sentinel.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf --port 26380'
+    volumes:
+      - ./docker/sentinel/sentinel.conf:/etc/redis/sentinel.conf:ro
+    ports:
+      - '127.0.0.1:26380:26380'
+    networks:
+      - sentinel
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-p', '26380', 'sentinel', 'master', 'bureau-master']
+      interval: 2s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  sentinel-3:
+    image: redis:7-alpine
+    entrypoint:
+      - sh
+      - -c
+      - 'cp /etc/redis/sentinel.conf /tmp/sentinel.conf && redis-sentinel /tmp/sentinel.conf --port 26381'
+    volumes:
+      - ./docker/sentinel/sentinel.conf:/etc/redis/sentinel.conf:ro
+    ports:
+      - '127.0.0.1:26381:26381'
+    networks:
+      - sentinel
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-p', '26381', 'sentinel', 'master', 'bureau-master']
+      interval: 2s
+      timeout: 5s
+      retries: 20
+      start_period: 10s

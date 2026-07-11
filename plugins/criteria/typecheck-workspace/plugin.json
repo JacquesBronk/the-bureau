@@ -1,0 +1,18 @@
+{
+  "name": "typecheck-workspace",
+  "version": "1.0.0",
+  "description": "Runs TypeScript type checking on a specified npm workspace",
+  "tags": [
+    "typescript",
+    "typecheck",
+    "quality",
+    "build"
+  ],
+  "entrypoint": "check.sh",
+  "inputs": {
+    "WORKSPACE": {
+      "description": "npm workspace path (e.g. packages/api)",
+      "required": true
+    }
+  }
+}

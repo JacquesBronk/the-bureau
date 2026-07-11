@@ -1,0 +1,31 @@
+The Bureau engine has been deployed.
+
+  Release:   {{ .Release.Name }}
+  Namespace: {{ .Release.Namespace }}
+  Engine:    {{ include "the-bureau.engine.image" . }}
+  Worker:    {{ include "the-bureau.worker.image" . }}
+  Workers spawn in namespace: {{ include "the-bureau.workerNamespace" . }}
+
+MCP endpoint (in-cluster):
+  {{ include "the-bureau.engine.url" . }}
+
+{{- if not (or .Values.auth.signingKey.existingSecret .Values.auth.signingKey.value) }}
+
+⚠  No signing key configured. The engine needs BUREAU_ENGINE_SIGNING_KEY to mint and
+   validate operator/worker tokens. Set one and upgrade:
+     auth.signingKey.value=<strong-random-string>
+   or reference an existing Secret via auth.signingKey.existingSecret.
+{{- end }}
+{{- if and (eq .Values.image.engine.repository "your-org/bureau-engine") }}
+
+⚠  image.engine.repository is still the placeholder "your-org/bureau-engine".
+   Point image.registry / image.engine.repository / image.worker.repository at
+   your published images before this will pull.
+{{- end }}
+
+Mint an operator token to drive the engine over MCP:
+  the-bureau mint-operator-token           # prints a bearer; export BUREAU_BEARER
+
+Check status:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "the-bureau.engine.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "the-bureau.engine.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}

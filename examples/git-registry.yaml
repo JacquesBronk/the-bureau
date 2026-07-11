@@ -1,0 +1,23 @@
+# Git destination registry — mounted into the engine at BUREAU_GIT_REGISTRY_FILE
+# (see the Helm chart's git.destinations value, which renders this file). A single
+# YAML document so a destination addition is one reviewable diff. Each entry's
+# secretRef Secret and any egress NetworkPolicy to its host should be added
+# alongside it.
+#
+# You need no file at all for the simple case: with only BUREAU_GIT_URL set, the
+# engine synthesizes a single default destination and behaves identically.
+destinations:
+  - name: default
+    url: https://github.com/your-org/your-repo.git
+    baseRef: main
+    secretRef: bureau-git        # k8s Secret (key "token") holding a PAT
+    tokenEnv: BUREAU_GIT_TOKEN   # env var the engine reads the PAT from
+    provider: github
+    isDefault: true
+  # A second repo on the same host reuses the same secret/egress:
+  - name: infra
+    url: https://github.com/your-org/infra.git
+    baseRef: main
+    secretRef: bureau-git
+    tokenEnv: BUREAU_GIT_TOKEN
+    provider: github

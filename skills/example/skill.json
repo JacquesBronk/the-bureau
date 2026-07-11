@@ -1,0 +1,6 @@
+{
+  "id": "example",
+  "name": "example",
+  "description": "Smoke-test skill that proves the engine skill-delivery pipe end to end.",
+  "version": "0.1.0"
+}

@@ -1,0 +1,34 @@
+{
+  "version": "2.0.0",
+  "runtimes": {
+    "claude-code": { "adapter": "claude-code", "redistributable": false }
+  },
+  "providers": {
+    "anthropic": {
+      "transport": "anthropic",
+      "auth": { "mode": "api-key", "env": "ANTHROPIC_API_KEY" }
+    },
+    "anthropic-sub": {
+      "transport": "anthropic",
+      "auth": { "mode": "oauth-token", "env": "CLAUDE_CODE_OAUTH_TOKEN" }
+    },
+    "local-qwen": {
+      "transport": "anthropic",
+      "baseUrl": "http://litellm.ai.svc.cluster.local:4000",
+      "model": "qwen2.5-coder:14b",
+      "auth": { "mode": "gateway", "env": "LITELLM_KEY" }
+    },
+    "local-qwen3": {
+      "transport": "anthropic",
+      "baseUrl": "http://litellm.ai.svc.cluster.local:4000",
+      "model": "qwen3:14b",
+      "auth": { "mode": "gateway", "env": "LITELLM_KEY" }
+    },
+    "local-gpt-oss": {
+      "transport": "anthropic",
+      "baseUrl": "http://litellm.ai.svc.cluster.local:4000",
+      "model": "gpt-oss:20b",
+      "auth": { "mode": "gateway", "env": "LITELLM_KEY" }
+    }
+  }
+}
