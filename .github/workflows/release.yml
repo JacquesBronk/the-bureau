@@ -33,12 +33,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write   # npm provenance
+      id-token: write   # OIDC token for npm Trusted Publishing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22   # Trusted Publishing needs Node >= 22.14
           registry-url: https://registry.npmjs.org
       - name: Resolve version
         run: |
@@ -57,10 +57,13 @@ jobs:
           fi
       - run: npm ci
       - run: npm run build
-      - name: Publish
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Trusted Publishing (OIDC) needs npm >= 11.5.1; the runner ships an older npm.
+      - name: Upgrade npm for Trusted Publishing
+        run: npm install -g npm@latest
+      # No token: npm authenticates via the GitHub Actions OIDC token (id-token: write).
+      # Provenance is attached automatically under Trusted Publishing, so no --provenance flag.
+      - name: Publish (Trusted Publishing / OIDC)
+        run: npm publish --access public
 
   images:
     name: Build & push images (GHCR)
